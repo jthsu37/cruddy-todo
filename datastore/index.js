@@ -1,53 +1,87 @@
-const fs = require('fs');
 const path = require('path');
 const _ = require('underscore');
 const counter = require('./counter');
+const fs = require('fs');
+const Promise = require('bluebird');
+const readFileAsync = Promise.promisify(fs.readFile);
+const readdirAsync = Promise.promisify(fs.readdir);
 
-var items = {};
+
+// var items = {};
 
 // Public API - Fix these CRUD functions ///////////////////////////////////////
 
 exports.create = (text, callback) => {
-  var id = counter.getNextUniqueId();
-  items[id] = text;
-  callback(null, { id, text });
-};
 
-exports.readAll = (callback) => {
-  var data = _.map(items, (text, id) => {
-    return { id, text };
+  counter.getNextUniqueId(function(err, uniqueId) {
+    if (err) {
+      console.log('could not get id');
+    } else {
+      fs.writeFile(exports.dataDir + '/' + uniqueId + '.txt', text, function(err) {
+        if (err) {
+          throw (err);
+        }
+        callback(null, { id: uniqueId, text: text });
+      });
+    }
   });
-  callback(null, data);
 };
 
 exports.readOne = (id, callback) => {
-  var text = items[id];
-  if (!text) {
-    callback(new Error(`No item with id: ${id}`));
-  } else {
-    callback(null, { id, text });
-  }
+  fs.readFile(`${exports.dataDir}/${id}.txt`, 'utf8', function(err, text) {
+    if (err) {
+      callback(new Error(`No item with id: ${id}`));
+    } else {
+      callback(null, {id: id, text: text});
+    }
+  });
+};
+
+const readOneAsync = Promise.promisify(exports.readOne);
+
+exports.readAll = (callback) => {
+  fs.readdir(exports.dataDir + '/', function(err, files) {
+    if (err) {
+      callback(err, null);
+    }
+    let trimmedFiles = files.map(function(file) {
+      var id = file.slice(0, 5);
+      return readFileAsync(`${exports.dataDir}/${file}`).then(text => {
+        return {id: id, text: text.toString()};
+      });
+    });
+    Promise.all(trimmedFiles).then(function(trimmedFiles) {
+      callback(null, trimmedFiles);
+    });
+  });
 };
 
 exports.update = (id, text, callback) => {
-  var item = items[id];
-  if (!item) {
-    callback(new Error(`No item with id: ${id}`));
-  } else {
-    items[id] = text;
-    callback(null, { id, text });
-  }
+  fs.readdir(`${exports.dataDir}/`, function(err, files) {
+    if (err) {
+      throw err;
+    } else if (!files.includes(`${id}.txt`)) {
+      callback(new Error(`No item with id: ${id}`));
+    } else {
+      fs.writeFile(`${exports.dataDir}/${id}.txt`, text, function(err) {
+        if (err) {
+          callback(new Error(`No item with id: ${id}`));
+        } else {
+          callback(null, {id: id, text: text});
+        }
+      });
+    }
+  });
 };
 
 exports.delete = (id, callback) => {
-  var item = items[id];
-  delete items[id];
-  if (!item) {
-    // report an error if item not found
-    callback(new Error(`No item with id: ${id}`));
-  } else {
-    callback();
-  }
+  fs.unlink(`${exports.dataDir}/${id}.txt`, function(err) {
+    if (err) {
+      callback(new Error(`No item with id: ${id}`));
+    } else {
+      callback();
+    }
+  });
 };
 
 // Config+Initialization code -- DO NOT MODIFY /////////////////////////////////
@@ -59,3 +93,4 @@ exports.initialize = () => {
     fs.mkdirSync(exports.dataDir);
   }
 };
+
